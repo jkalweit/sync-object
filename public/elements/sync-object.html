@@ -1,0 +1,39 @@
+<link rel="import" href="../bower_components/polymer/polymer.html">
+
+<polymer-element name="sync-object" attributes="room socket">
+    <template>
+        <input value="{{room}}" />
+    </template>
+    <script>
+        Polymer('sync-object', {
+            socket: null,
+            room: null,
+            roomChanged: function (oldRoom, newRoom) {
+                console.log('room changed from "' + oldRoom + '" to "' + newRoom + '"');
+                if (!this.socket){
+                    this.socket = io();
+                    this.socket.on('update', function(room, detail) {
+                        console.log(room + ': update rcvd: ' + JSON.stringify(detail));
+                        if(room === this.room) {
+                            console.log('   firing update');
+                            this.fire('update', detail);
+                        } else
+                            console.log('   "' + room + '"  does not match "' + this.room + '", not firing update');
+                    }.bind(this));
+                }
+                if(oldRoom){
+                    console.log('leaving ' + oldRoom);
+                    this.socket.emit('leave', oldRoom);
+                }
+                if (this.room) {
+                    console.log('joining ' + this.room);
+                    this.socket.emit('join', this.room);
+                }
+            },
+            sendUpdate: function(detail) {
+                if(this.socket)
+                    this.socket.emit('update', this.room, detail);
+            }
+        });
+    </script>
+</polymer-element>

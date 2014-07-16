@@ -1,0 +1,23 @@
+<link rel="import" href="../bower_components/polymer/polymer.html">
+<link rel="import" href="sync-object.html" />
+<polymer-element name="demo-test">
+    <template>
+        <h3>demo-test</h3>
+        <button on-click="{{sendUpdate}}">Send Update</button>
+        <sync-object id="sync1" room="demo" on-update="{{update}}"></sync-object>
+    </template>
+    <script>
+        Polymer('demo-test', {
+            update: function (e, detail) {
+                console.log('update! ' + JSON.stringify(detail));
+            },
+            sendUpdate: function () {
+                var detail = {
+                    title: 'test!'
+                };
+                console.log('send update: ' + JSON.stringify(detail))
+                this.$.sync1.sendUpdate(detail);
+            }
+        });
+    </script>
+</polymer-element>
