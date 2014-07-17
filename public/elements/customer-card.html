@@ -1,0 +1,26 @@
+<link rel="import" href="../bower_components/polymer/polymer.html">
+<link rel="import" href="sync-object.html" />
+
+<polymer-element name="customer-card" attributes="customer">
+    <template>
+        <style>
+            :host {
+                display: inline-block;
+                width: 300px;
+                margin: 10px;
+                background-color: {{ removed ? "red" : "cornflowerblue" }};
+            }
+        </style>
+        <span style="float: right">{{customer.id}}</span>
+        <sync-object path="cy.customers.items.{{customer.id}}.name" value="{{name}}" autosave="true" removed="{{removed}}"></sync-object>
+        <input value="{{name}}"/>name
+        <input value="{{customer.name}}"/>customer.name
+
+    </template>
+    <script>
+        Polymer('customer-card', {
+            customer: null,
+            removed: false
+        });
+    </script>
+</polymer-element>

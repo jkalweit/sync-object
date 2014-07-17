@@ -1,38 +1,130 @@
 <link rel="import" href="../bower_components/polymer/polymer.html">
 
-<polymer-element name="sync-object" attributes="room socket">
+<polymer-element name="sync-object" attributes="path value autosave removed">
     <template>
-        <input value="{{room}}" />
+        <!--<input value="{{path}}"/>-->
+        <!--<button on-click="{{sendUpdate}}">Send Update</button>-->
     </template>
     <script>
         Polymer('sync-object', {
             socket: null,
-            room: null,
-            roomChanged: function (oldRoom, newRoom) {
-                console.log('room changed from "' + oldRoom + '" to "' + newRoom + '"');
-                if (!this.socket){
-                    this.socket = io();
-                    this.socket.on('update', function(room, detail) {
-                        console.log(room + ': update rcvd: ' + JSON.stringify(detail));
-                        if(room === this.room) {
-                            console.log('   firing update');
-                            this.fire('update', detail);
-                        } else
-                            console.log('   "' + room + '"  does not match "' + this.room + '", not firing update');
-                    }.bind(this));
-                }
-                if(oldRoom){
-                    console.log('leaving ' + oldRoom);
-                    this.socket.emit('leave', oldRoom);
-                }
-                if (this.room) {
-                    console.log('joining ' + this.room);
-                    this.socket.emit('join', this.room);
-                }
+            path: null,
+            value: null,
+            autosave: false,
+            initialized: false,
+            cancelNextUpdate: false,
+            ready: function () {
+                this.syncId = this.makeGuid();
+                this.socket = io();
+                this.socket.on('init', function (id, path, value) {
+                    //console.log(path + ': init rcvd: ' + JSON.stringify(value));
+                    if(id !== this.syncId)
+                        return;
+
+                    if (path === this.path) {
+                        console.log('   firing init: ' + path);
+                        this.cancelNextUpdate = true;
+                        this.value = value;
+                        this.initialized = true;
+                        this.removed = false;
+                        this.fire('init', value);
+                    } else {
+                        //console.log('!!!!!"' + path + '"  does not match "' + this.path + '", not firing init');
+                    }
+                }.bind(this));
+                this.socket.on('update', function (id, path, value) {
+                    //console.log(path + ': update rcvd: ' + JSON.stringify(value));
+
+                    //ignore our own updates:
+                    if(!this.initialized || id === this.syncId)
+                        return;
+
+                    if (path === this.path) {
+                        console.log('   firing update: ' + path);
+                        this.cancelNextUpdate = true;
+                        this.value = value;
+                        this.removed = false;
+                        this.fire('update', value);
+                    } else if (this.path.indexOf(path) === 0) {
+                        // Check for upstream updates.
+                        // WARNING: the above will match "part1.part2" to "part1.part21111", so check for same number of parts:
+                        var partsMe = this.path.split('.');
+                        var partsThem = path.split('.');
+                        if (partsThem.length === partsMe.length) {
+                            // too long, can't be upstream.
+                            return;
+                        }
+                        console.log('   #upstream update: ' + path);
+                        // walk the path to find our new value
+                        var partsRemaining = partsMe.splice(partsThem.length, partsMe.length - partsThem.length);
+                        var newValue = value;
+                        for (var i = 0; i < partsRemaining.length; i++) {
+                            if (!newValue.hasOwnProperty(partsRemaining[i])) {
+                                console.log('   #upstream update: REMOVED:' + path);
+                                this.removed = true;
+                                return;
+                            }
+                            newValue = newValue[partsRemaining[i]];
+                        }
+                        this.removed = false;
+                        this.cancelNextUpdate = true;
+                        this.value = newValue;
+
+                        // console.log('!!!!!"' + path + '"  does not match "' + this.path + '", not firing update');
+                    } else if (path.indexOf(this.path) === 0) {
+                        // Check for downstream updates.
+                        // WARNING: the above will match "part1.part2" to "part1.part21111", so check for same number of parts:
+                        var partsMe = this.path.split('.');
+                        var partsThem = path.split('.');
+                        if (partsThem.length === partsMe.length) {
+                            // too long, can't be downstream.
+                            return;
+                        }
+
+                        console.log('   #downstream update: ' + this.path + ': ' + path);
+                        // walk the path to find our new value
+
+                        var partsRemaining = partsThem.splice(partsMe.length, partsThem.length - partsMe.length);
+
+                        var target = this.value;
+                        var currPart;
+                        for(var i = 0; i < partsRemaining.length-1; i++){
+                            currPart = partsRemaining[i];
+                            if(!target.hasOwnProperty(currPart)) // build path if doesn't exist
+                                target[currPart] = {};
+                            target = target[currPart];
+                        }
+
+                        this.removed = false;
+                        this.cancelNextUpdate = false;
+                        target[partsRemaining[partsRemaining.length - 1]] = value;
+                    }
+                }.bind(this));
             },
-            sendUpdate: function(detail) {
-                if(this.socket)
-                    this.socket.emit('update', this.room, detail);
+            pathChanged: function (oldPath, newPath) {
+                console.log('path changed from "' + oldPath + '" to "' + newPath + '"');
+                this.initialized = false;
+                if (newPath)
+                    this.socket.emit('init', this.syncId, newPath);
+            },
+            valueChanged: function (oldValue, newValue) {
+                if (!this.cancelNextUpdate && this.autosave && this.initialized && oldValue !== newValue)
+                    this.sendUpdate();
+                else
+                    console.log('no autosave: ' + !this.cancelNextUpdate + this.autosave + this.initialized + (oldValue !== newValue));
+                this.cancelNextUpdate = false;
+            },
+            sendUpdate: function () {
+                this.socket.emit('update', this.syncId, this.path, this.value);
+            },
+            addItem: function (path, item) {
+                this.socket.emit('additem', this.syncId, path, item);
+            },
+            makeGuid: function () {
+                function S4() {
+                    return (((1+Math.random())*0x10000)|0).toString(16).substring(1);
+                }
+                return (S4() + S4() + "-" + S4() + "-4" + S4().substr(0,3) + "-" + S4() + "-" + S4() + S4() + S4()).toLowerCase();
             }
         });
     </script>
