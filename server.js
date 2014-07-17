@@ -55,23 +55,91 @@ var server = http.createServer(function (req, res) {
 //}
 
 
+var db = {
+    cy: {
+        status: 'Hello!',
+        customers: {
+            currId: 1,
+            items: {
+                '1': {
+                    id: '1',
+                    name: 'Justin!'
+                }
+            }
+        }
+    }
+};
+
+function getValue(path) {
+    var parts = path.split('.');
+    var value = null;
+    if (parts.length > 0)
+        value = db[parts[0]];
+    for (var i = 1; i < parts.length; i++) {
+        if (value.hasOwnProperty(parts[i]))
+            value = value[parts[i]];
+        else
+            return null;
+    }
+    return value;
+}
+
+function setValue(path, value) {
+    //console.log('setValue: ' + path + ': ' + JSON.stringify(value));
+    var parts = path.split('.');
+    if (!parts.length) {
+        console.log('path is empty!')
+        return;
+    }
+
+    var target = db;
+    var currPart;
+    for (var i = 0; i < parts.length - 1; i++) {
+        currPart = parts[i];
+        if (!target.hasOwnProperty(currPart)) // build path if doesn't exist
+            target[currPart] = {};
+        target = target[currPart];
+    }
+
+    target[parts[parts.length - 1]] = value;
+}
+
 var io = require('socket.io')(server);
 
 io.on('connection', function (socket) {
     console.log('a user connected');
+//    socket.on('join', function(path) {
+//        console.log('joining: ' + path);
+//        socket.join(path);
+//        socket.emit('init', path, getValue(path));
+//    });
+//
+//    socket.on('leave', function(path) {
+//        console.log('leaving: ' + path);
+//        socket.leave(path);
+//    });
 
-    socket.on('join', function(room) {
-        console.log('joining: ' + room);
-        socket.join(room);
+    socket.on('init', function (id, path) {
+        console.log('init: ' + id + ': ' + path);
+        socket.emit('init', id, path, getValue(path));
     });
 
-    socket.on('leave', function(room) {
-        console.log('leaving: ' + room);
-        socket.leave(room);
+    socket.on('update', function (id, path, value) {
+        console.log(id + ': ' + path + ': received update: ' + JSON.stringify(value));
+        setValue(path, value)
+        io.emit('update', id, path, value);
     });
 
-    socket.on('update', function(room, detail) {
-        console.log(room + ': received update: ' + JSON.stringify(detail));
-        io.emit('update', room, detail);
-    })
+    socket.on('additem', function (id, path, value) {
+        var list = getValue(path);
+        if (!list.currId)
+            list.currId = 0;
+        if(!list.items)
+            list.items = {};
+        value.id = ++list.currId;
+        list.items[value.id] = value;
+
+        setValue(path, list);
+        io.emit('update', '', path, list);
+    });
 });
